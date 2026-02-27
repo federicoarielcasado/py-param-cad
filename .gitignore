@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Project runtime
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+outputs/
+exports/
+*.log
+
+# Claude Code local config (session-specific, not for sharing)
+.claude/
+Claude.md
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# PyInstaller
+*.spec
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# FreeCAD temp
+*.FCBak
+*.FCStd1
+
+# Environment overrides
+.env

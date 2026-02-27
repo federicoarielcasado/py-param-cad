@@ -1,0 +1,229 @@
+{
+  "catalog_version": "1.0",
+  "last_updated": "2026-02-25",
+  "pieces": [
+    {
+      "code": "base_plate",
+      "display_name": "Placa Base Estructural",
+      "discipline": "structural",
+      "category": "base",
+      "description": "Placa base para anclaje estructural con patr\u00f3n de perforaciones configurable.",
+      "parameters": [
+        {
+          "name": "largo",
+          "display_name": "Largo (L)",
+          "unit": "mm",
+          "type": "float",
+          "default": 300.0,
+          "min": 50.0,
+          "max": 2000.0,
+          "step": 5.0,
+          "description": "Dimensi\u00f3n longitudinal de la placa (direcci\u00f3n X).",
+          "schematic_image": "base_plate/largo.png"
+        },
+        {
+          "name": "ancho",
+          "display_name": "Ancho (W)",
+          "unit": "mm",
+          "type": "float",
+          "default": 200.0,
+          "min": 50.0,
+          "max": 2000.0,
+          "step": 5.0,
+          "description": "Dimensi\u00f3n transversal de la placa (direcci\u00f3n Y).",
+          "schematic_image": "base_plate/ancho.png"
+        },
+        {
+          "name": "espesor",
+          "display_name": "Espesor (t)",
+          "unit": "mm",
+          "type": "float",
+          "default": 12.0,
+          "min": 4.0,
+          "max": 100.0,
+          "step": 2.0,
+          "description": "Espesor de la placa. M\u00ednimo 4 mm por norma de mecanizabilidad.",
+          "schematic_image": "base_plate/espesor.png"
+        },
+        {
+          "name": "material",
+          "display_name": "Material",
+          "unit": "",
+          "type": "enum",
+          "default": "ASTM_A36",
+          "options": [
+            {"value": "ASTM_A36",       "label": "Acero ASTM A36"},
+            {"value": "ASTM_A572_G50",  "label": "Acero ASTM A572 Gr.50"},
+            {"value": "SS304",          "label": "Acero Inoxidable AISI 304"},
+            {"value": "SS316",          "label": "Acero Inoxidable AISI 316"},
+            {"value": "AL6061T6",       "label": "Aluminio 6061-T6"}
+          ],
+          "description": "Material de la placa. Determina propiedades mec\u00e1nicas y acabado.",
+          "schematic_image": null
+        },
+        {
+          "name": "patron_perforaciones",
+          "display_name": "Patr\u00f3n de Perforaciones",
+          "unit": "",
+          "type": "enum",
+          "default": "rectangular_4",
+          "options": [
+            {"value": "none",           "label": "Sin perforaciones"},
+            {"value": "rectangular_4",  "label": "Rectangular 4 agujeros"},
+            {"value": "rectangular_6",  "label": "Rectangular 6 agujeros"},
+            {"value": "lineal_2",       "label": "Lineal 2 agujeros (eje L)"},
+            {"value": "personalizado",  "label": "Personalizado (nx, ny)"}
+          ],
+          "description": "Disposici\u00f3n de los agujeros de anclaje.",
+          "schematic_image": "base_plate/patron_perforaciones.png"
+        },
+        {
+          "name": "diametro_perforacion",
+          "display_name": "Di\u00e1metro de Perforaci\u00f3n (d)",
+          "unit": "mm",
+          "type": "float",
+          "default": 18.0,
+          "min": 6.0,
+          "max": 80.0,
+          "step": 1.0,
+          "description": "Di\u00e1metro de cada agujero de anclaje.",
+          "schematic_image": "base_plate/diametro_perforacion.png"
+        },
+        {
+          "name": "margen_perforacion",
+          "display_name": "Margen Borde-Agujero (e)",
+          "unit": "mm",
+          "type": "float",
+          "default": 30.0,
+          "min": 10.0,
+          "max": 200.0,
+          "step": 5.0,
+          "description": "Distancia m\u00ednima del centro del agujero al borde de la placa.",
+          "schematic_image": "base_plate/margen_perforacion.png"
+        },
+        {
+          "name": "tiene_ranuras",
+          "display_name": "Incluir Ranuras",
+          "unit": "",
+          "type": "bool",
+          "default": false,
+          "description": "Agrega ranuras de ajuste (slots) en los bordes longitudinales.",
+          "schematic_image": "base_plate/ranuras.png"
+        },
+        {
+          "name": "ancho_ranura",
+          "display_name": "Ancho de Ranura",
+          "unit": "mm",
+          "type": "float",
+          "default": 12.0,
+          "min": 6.0,
+          "max": 40.0,
+          "step": 2.0,
+          "description": "Ancho de cada ranura de ajuste. Solo activo si 'Incluir Ranuras' = S\u00ed.",
+          "schematic_image": "base_plate/ancho_ranura.png",
+          "depends_on": {"tiene_ranuras": true}
+        },
+        {
+          "name": "largo_ranura",
+          "display_name": "Largo de Ranura",
+          "unit": "mm",
+          "type": "float",
+          "default": 40.0,
+          "min": 10.0,
+          "max": 200.0,
+          "step": 5.0,
+          "description": "Longitud de cada ranura de ajuste.",
+          "schematic_image": "base_plate/largo_ranura.png",
+          "depends_on": {"tiene_ranuras": true}
+        },
+        {
+          "name": "acabado_superficial",
+          "display_name": "Acabado Superficial",
+          "unit": "",
+          "type": "enum",
+          "default": "laminado_caliente",
+          "options": [
+            {"value": "laminado_caliente", "label": "Laminado en Caliente (HR)"},
+            {"value": "laminado_frio",     "label": "Laminado en Fr\u00edo (CR)"},
+            {"value": "granallado",        "label": "Granallado Sa 2.5"},
+            {"value": "pintado",           "label": "Pintado (Epoxi + Acabado)"}
+          ],
+          "description": "Tratamiento superficial final de la placa.",
+          "schematic_image": null
+        }
+      ],
+      "validation_rules": [
+        {
+          "rule_id": "VR-BP-01",
+          "description": "Espesor m\u00ednimo absoluto",
+          "expression": "espesor >= 4.0",
+          "severity": "error",
+          "message": "El espesor m\u00ednimo de la placa es 4 mm."
+        },
+        {
+          "rule_id": "VR-BP-02",
+          "description": "Relaci\u00f3n largo/ancho m\u00e1xima",
+          "expression": "max(largo, ancho) / min(largo, ancho) <= 10.0",
+          "severity": "warning",
+          "message": "La relaci\u00f3n largo/ancho supera 10:1. Puede ser dif\u00edcil de transportar y puede requerir rigidizadores."
+        },
+        {
+          "rule_id": "VR-BP-03",
+          "description": "Espesor m\u00ednimo relativo al di\u00e1metro de perforaci\u00f3n",
+          "expression": "espesor >= diametro_perforacion * 0.5",
+          "severity": "warning",
+          "message": "El espesor es menor a la mitad del di\u00e1metro de perforaci\u00f3n. Riesgo de deformaci\u00f3n al roscar."
+        },
+        {
+          "rule_id": "VR-BP-04",
+          "description": "Margen m\u00ednimo borde-agujero (AISC)",
+          "expression": "margen_perforacion >= diametro_perforacion * 1.5",
+          "severity": "error",
+          "message": "El margen borde-agujero debe ser al menos 1.5 \u00d7 di\u00e1metro (criterio AISC Tabla J3.4)."
+        },
+        {
+          "rule_id": "VR-BP-05",
+          "description": "Perforaciones caben dentro de la placa (dimensi\u00f3n largo)",
+          "expression": "largo >= 2 * margen_perforacion + diametro_perforacion",
+          "severity": "error",
+          "message": "El largo de la placa es insuficiente para alojar las perforaciones con los m\u00e1rgenes definidos."
+        },
+        {
+          "rule_id": "VR-BP-06",
+          "description": "Perforaciones caben dentro de la placa (dimensi\u00f3n ancho)",
+          "expression": "ancho >= 2 * margen_perforacion + diametro_perforacion",
+          "severity": "error",
+          "message": "El ancho de la placa es insuficiente para alojar las perforaciones con los m\u00e1rgenes definidos."
+        },
+        {
+          "rule_id": "VR-BP-07",
+          "description": "Ranura cabe en la placa (largo de ranura vs. largo de placa)",
+          "expression": "not tiene_ranuras or largo_ranura <= largo * 0.6",
+          "severity": "warning",
+          "message": "El largo de ranura supera el 60% del largo de placa. Verifique la rigidez residual."
+        },
+        {
+          "rule_id": "VR-BP-08",
+          "description": "Ancho m\u00ednimo de ranura para mecanizabilidad",
+          "expression": "not tiene_ranuras or ancho_ranura >= 6.0",
+          "severity": "error",
+          "message": "El ancho m\u00ednimo de ranura es 6 mm por limitaci\u00f3n de herramienta de fresado."
+        }
+      ],
+      "bom_template": [
+        {
+          "item_number": 1,
+          "part_code": "PB-PLACA",
+          "description": "Placa Base Estructural",
+          "quantity": 1,
+          "unit": "UN",
+          "material_param": "material",
+          "standard": "ASTM A6 / IRAM IAS U 500-205",
+          "observations": "Ver plano N\u00b0 {drawing_number} Rev. {revision_code}"
+        }
+      ],
+      "cad_script": "base_plate_generator.py",
+      "drawing_views": ["top", "front", "side", "isometric"]
+    }
+  ]
+}
