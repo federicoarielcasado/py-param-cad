@@ -56,44 +56,83 @@ _STYLE_OK      = "color: #2E7D32; font-size: 11px; padding: 2px 0;"
 
 
 class _ValidationPanel(QWidget):
-    """Displays a list of validation messages below the form."""
+    """Displays a list of validation messages below the form.
+
+    Layout:
+      - Summary line (bold): counts of errors / warnings
+      - Thin separator (when there are messages)
+      - Individual error / warning lines with rule_id tooltip
+    """
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 4, 0, 0)
         self._layout.setSpacing(2)
-        self._labels: list[QLabel] = []
+        self._items: list[QWidget] = []   # QLabel or QFrame
 
     def update(self, result: Optional[ValidationResult]) -> None:  # type: ignore[override]
-        for lbl in self._labels:
-            self._layout.removeWidget(lbl)
-            lbl.deleteLater()
-        self._labels.clear()
+        for w in self._items:
+            self._layout.removeWidget(w)
+            w.deleteLater()
+        self._items.clear()
 
         if result is None:
             return
 
-        if result.is_valid and not result.warnings:
-            lbl = QLabel("✓  Todos los parámetros son válidos.")
-            lbl.setStyleSheet(_STYLE_OK)
-            self._layout.addWidget(lbl)
-            self._labels.append(lbl)
+        n_err  = len(result.errors)
+        n_warn = len(result.warnings)
+
+        # --- Summary line ---
+        if result.is_valid and n_warn == 0:
+            summary_text  = "✓  Todos los parámetros son válidos."
+            summary_style = _STYLE_OK + " font-weight: bold;"
+        elif result.is_valid:
+            summary_text  = (
+                f"✓  Válido  ·  ⚠ {n_warn} "
+                f"advertencia{'s' if n_warn != 1 else ''}"
+            )
+            summary_style = _STYLE_WARNING + " font-weight: bold;"
+        else:
+            err_part  = f"✗ {n_err} error{'es' if n_err != 1 else ''}"
+            warn_part = (
+                f"  ·  ⚠ {n_warn} advertencia{'s' if n_warn != 1 else ''}"
+                if n_warn else ""
+            )
+            summary_text  = err_part + warn_part
+            summary_style = _STYLE_ERROR + " font-weight: bold;"
+
+        summary_lbl = QLabel(summary_text)
+        summary_lbl.setStyleSheet(summary_style)
+        self._layout.addWidget(summary_lbl)
+        self._items.append(summary_lbl)
+
+        if not (result.errors or result.warnings):
             return
 
+        # --- Separator ---
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #DDDDDD; margin: 2px 0;")
+        self._layout.addWidget(sep)
+        self._items.append(sep)
+
+        # --- Individual messages (errors first, then warnings) ---
         for msg in result.errors:
-            lbl = QLabel(f"✗  {msg.message}")
+            lbl = QLabel(f"  ✗  {msg.message}")
             lbl.setStyleSheet(_STYLE_ERROR)
             lbl.setWordWrap(True)
+            lbl.setToolTip(f"Regla: {msg.rule_id}")
             self._layout.addWidget(lbl)
-            self._labels.append(lbl)
+            self._items.append(lbl)
 
         for msg in result.warnings:
-            lbl = QLabel(f"⚠  {msg.message}")
+            lbl = QLabel(f"  ⚠  {msg.message}")
             lbl.setStyleSheet(_STYLE_WARNING)
             lbl.setWordWrap(True)
+            lbl.setToolTip(f"Regla: {msg.rule_id}")
             self._layout.addWidget(lbl)
-            self._labels.append(lbl)
+            self._items.append(lbl)
 
 
 # ---------------------------------------------------------------------------

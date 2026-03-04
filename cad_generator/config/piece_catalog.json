@@ -208,6 +208,27 @@
           "expression": "not tiene_ranuras or ancho_ranura >= 6.0",
           "severity": "error",
           "message": "El ancho m\u00ednimo de ranura es 6 mm por limitaci\u00f3n de herramienta de fresado."
+        },
+        {
+          "rule_id": "VR-BP-09",
+          "description": "Separaci\u00f3n m\u00ednima entre agujeros en direcci\u00f3n longitudinal (AISC)",
+          "expression": "patron_perforaciones == \"none\" or (largo - 2 * margen_perforacion) >= 3 * diametro_perforacion",
+          "severity": "error",
+          "message": "La separaci\u00f3n entre agujeros en direcci\u00f3n longitudinal debe ser \u2265 3 \u00d7 di\u00e1metro (criterio AISC J3.3)."
+        },
+        {
+          "rule_id": "VR-BP-10",
+          "description": "Relaci\u00f3n largo/ancho de ranura m\u00e1xima",
+          "expression": "not tiene_ranuras or largo_ranura <= 8 * ancho_ranura",
+          "severity": "warning",
+          "message": "La relaci\u00f3n largo/ancho de ranura supera 8:1. Riesgo de deformaci\u00f3n en fresado."
+        },
+        {
+          "rule_id": "VR-BP-11",
+          "description": "Separaci\u00f3n m\u00ednima entre agujeros en direcci\u00f3n transversal (solo patrones rectangulares)",
+          "expression": "patron_perforaciones in (\"none\", \"lineal_2\", \"personalizado\") or (ancho - 2 * margen_perforacion) >= 3 * diametro_perforacion",
+          "severity": "error",
+          "message": "Para patr\u00f3n rectangular, la separaci\u00f3n transversal entre agujeros debe ser \u2265 3 \u00d7 di\u00e1metro (criterio AISC J3.3)."
         }
       ],
       "bom_template": [

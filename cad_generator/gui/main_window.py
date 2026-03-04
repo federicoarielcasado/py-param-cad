@@ -21,10 +21,16 @@ Flujo de trabajo:
 
 from __future__ import annotations
 
+import os
+import subprocess
+from pathlib import Path
+from typing import Optional
+
 from PyQt6.QtCore import QThread, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QKeySequence
 from PyQt6.QtWidgets import (
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -48,6 +54,181 @@ from cad_generator.gui.catalog_widget import CatalogWidget
 from cad_generator.gui.new_design_dialog import NewDesignDialog
 from cad_generator.gui.parameter_form import ParameterForm
 from cad_generator.gui.schematic_viewer import SchematicViewer
+
+
+# ---------------------------------------------------------------------------
+# Result panel — persistent display after generation (replaces QMessageBox)
+# ---------------------------------------------------------------------------
+
+class _ResultPanel(QFrame):
+    """
+    Shown below the action bar after each generation attempt.
+    Displays status, elapsed time, file buttons, and any warnings/errors.
+    """
+
+    _STYLE_SUCCESS = (
+        "QFrame { background: #F0FFF0; border: 1px solid #4CAF50; "
+        "border-radius: 4px; }"
+    )
+    _STYLE_FAILURE = (
+        "QFrame { background: #FFF0F0; border: 1px solid #F44336; "
+        "border-radius: 4px; }"
+    )
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+
+        self._fcstd_path: Optional[Path] = None
+        self._step_path: Optional[Path] = None
+        self._output_dir: Optional[Path] = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(6)
+
+        # --- Header row: status text + elapsed time ---
+        header_row = QWidget()
+        hl = QHBoxLayout(header_row)
+        hl.setContentsMargins(0, 0, 0, 0)
+        hl.setSpacing(8)
+
+        self._status_lbl = QLabel()
+        self._status_lbl.setStyleSheet("font-weight: bold; font-size: 12px;")
+
+        self._elapsed_lbl = QLabel()
+        self._elapsed_lbl.setStyleSheet("color: #666; font-size: 11px;")
+
+        hl.addWidget(self._status_lbl)
+        hl.addStretch()
+        hl.addWidget(self._elapsed_lbl)
+        layout.addWidget(header_row)
+
+        # --- Separator ---
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #CCC;")
+        layout.addWidget(sep)
+
+        # --- File buttons row (success only) ---
+        self._btn_row = QWidget()
+        bl = QHBoxLayout(self._btn_row)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(6)
+
+        self._btn_fcstd   = QPushButton("📄  FCStd")
+        self._btn_step    = QPushButton("📐  STEP")
+        self._btn_folder  = QPushButton("📂  Abrir carpeta")
+        self._btn_freecad = QPushButton("🔧  Abrir en FreeCAD")
+
+        for btn in (self._btn_fcstd, self._btn_step,
+                    self._btn_folder, self._btn_freecad):
+            btn.setEnabled(False)
+            bl.addWidget(btn)
+        bl.addStretch()
+        layout.addWidget(self._btn_row)
+
+        # --- Messages (warnings or error text) ---
+        self._msg_lbl = QLabel()
+        self._msg_lbl.setWordWrap(True)
+        self._msg_lbl.setStyleSheet("font-size: 11px;")
+        self._msg_lbl.hide()
+        layout.addWidget(self._msg_lbl)
+
+        # Wire buttons
+        self._btn_fcstd.clicked.connect(
+            lambda: os.startfile(str(self._fcstd_path))
+            if self._fcstd_path else None
+        )
+        self._btn_step.clicked.connect(
+            lambda: os.startfile(str(self._step_path))
+            if self._step_path else None
+        )
+        self._btn_folder.clicked.connect(
+            lambda: os.startfile(str(self._output_dir))
+            if self._output_dir else None
+        )
+        self._btn_freecad.clicked.connect(self._open_in_freecad)
+
+        self.hide()
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def show_result(self, response: GenerationResponse) -> None:
+        """Populate with a GenerationResponse and make the panel visible."""
+        self._fcstd_path = response.fcstd_path
+        self._step_path  = response.step_path
+        self._output_dir = response.output_dir
+
+        if response.success:
+            self.setStyleSheet(self._STYLE_SUCCESS)
+            self._status_lbl.setText(
+                f"✅  Revisión <b>{response.revision_code}</b> generada correctamente."
+            )
+            self._status_lbl.setStyleSheet(
+                "font-weight: bold; font-size: 12px; color: #2E7D32;"
+            )
+        else:
+            self.setStyleSheet(self._STYLE_FAILURE)
+            self._status_lbl.setText("❌  Error en la generación del modelo.")
+            self._status_lbl.setStyleSheet(
+                "font-weight: bold; font-size: 12px; color: #CC0000;"
+            )
+
+        # Elapsed time
+        if response.elapsed_seconds:
+            self._elapsed_lbl.setText(f"⏱  {response.elapsed_seconds:.1f} s")
+        else:
+            self._elapsed_lbl.clear()
+
+        # File buttons — only shown on success; enabled when file exists
+        self._btn_row.setVisible(response.success)
+        if response.success:
+            self._btn_fcstd.setEnabled(
+                bool(self._fcstd_path and Path(self._fcstd_path).exists())
+            )
+            self._btn_step.setEnabled(
+                bool(self._step_path and Path(self._step_path).exists())
+            )
+            self._btn_folder.setEnabled(
+                bool(self._output_dir and Path(self._output_dir).exists())
+            )
+            self._btn_freecad.setEnabled(
+                bool(self._fcstd_path and Path(self._fcstd_path).exists())
+            )
+
+        # Messages
+        msgs: list[str] = []
+        if response.success and response.warnings:
+            msgs = [f"⚠  {w}" for w in response.warnings]
+            self._msg_lbl.setStyleSheet("font-size: 11px; color: #B8600A;")
+        elif not response.success:
+            msgs = response.errors or ["Error desconocido."]
+            self._msg_lbl.setStyleSheet("font-size: 11px; color: #CC0000;")
+
+        if msgs:
+            self._msg_lbl.setText("\n".join(msgs))
+            self._msg_lbl.show()
+        else:
+            self._msg_lbl.hide()
+
+        self.show()
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _open_in_freecad(self) -> None:
+        if not self._fcstd_path:
+            return
+        freecad_exe = settings.freecad_bin.parent / "FreeCAD.exe"
+        if freecad_exe.exists():
+            subprocess.Popen([str(freecad_exe), str(self._fcstd_path)])
+        else:
+            # Fallback: open with default file association
+            os.startfile(str(self._fcstd_path))
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +370,11 @@ class _ParameterPage(QWidget):
         action_layout.addWidget(self._btn_generate)
         layout.addWidget(action_bar)
 
+        # Result panel (hidden until first generation)
+        self._result_panel = _ResultPanel()
+        self._result_panel.setContentsMargins(8, 4, 8, 4)
+        layout.addWidget(self._result_panel)
+
         # Wire signals
         self._btn_new_design.clicked.connect(self._on_create_design)
         self._btn_generate.clicked.connect(self._on_generate)
@@ -221,9 +407,30 @@ class _ParameterPage(QWidget):
     # ------------------------------------------------------------------
 
     def _on_validation_changed(self, result) -> None:
-        """Enable/disable 'Crear Diseño' based on validation."""
-        has_piece = self._current_piece_code is not None
+        """Enable/disable buttons based on validation state."""
+        has_piece  = self._current_piece_code is not None
+        has_design = self._current_design_id is not None
+
         self._btn_new_design.setEnabled(has_piece and result.is_valid)
+
+        # Generate requires an active design AND valid parameters
+        self._btn_generate.setEnabled(has_design and result.is_valid)
+
+        # Tooltip on Generate shows active warnings when applicable
+        if has_design and result.warnings:
+            warn_lines = "\n".join(f"⚠  {w.message}" for w in result.warnings)
+            self._btn_generate.setToolTip(
+                f"Generar modelo 3D — diseño ID {self._current_design_id}\n\n"
+                f"Advertencias activas:\n{warn_lines}"
+            )
+        elif has_design:
+            self._btn_generate.setToolTip(
+                f"Generar modelo 3D para diseño ID {self._current_design_id}."
+            )
+        else:
+            self._btn_generate.setToolTip(
+                "Creá un diseño antes de generar el modelo."
+            )
 
     def _on_param_focused(self, param_name: str) -> None:
         """Relay focus change to SchematicViewer so it highlights that dimension."""
@@ -310,39 +517,15 @@ class _ParameterPage(QWidget):
     ) -> None:
         progress.close()
 
+        # Show result in the persistent panel (no QMessageBox for generation)
+        self._result_panel.show_result(response)
+
         if response.success:
-            msg = (
-                f"Revisión <b>{response.revision_code}</b> generada correctamente."
-                f"<br><br>"
-                f"<b>Archivos:</b><br>"
-                f"&nbsp;• FCStd: {response.output_dir / f'base_plate_{response.revision_code}.FCStd'}<br>"
-                f"&nbsp;• STEP:  {response.output_dir / f'base_plate_{response.revision_code}.step'}"
-            )
-            if response.warnings:
-                msg += "<br><br><b>Advertencias:</b><br>" + "<br>".join(
-                    f"&nbsp;⚠ {w}" for w in response.warnings
-                )
-            if response.elapsed_seconds:
-                msg += f"<br><br><i>Tiempo: {response.elapsed_seconds:.1f} s</i>"
-
-            QMessageBox.information(self, "Generación completada", msg)
-
             self._design_status_lbl.setText(
                 f"✓  Rev. {response.revision_code} generada"
                 + (f"  [{response.elapsed_seconds:.1f}s]" if response.elapsed_seconds else "")
             )
             self._design_status_lbl.setStyleSheet("color: #2E7D32; font-weight: bold;")
-
-        else:
-            error_text = "\n".join(response.errors) or "Error desconocido."
-            warn_text  = (
-                "\n\nAdvertencias:\n" + "\n".join(response.warnings)
-                if response.warnings else ""
-            )
-            QMessageBox.critical(
-                self, "Error en generación",
-                f"No se pudo generar el modelo:\n\n{error_text}{warn_text}",
-            )
 
 
 # ---------------------------------------------------------------------------

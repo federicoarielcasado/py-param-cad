@@ -44,6 +44,8 @@ class GenerationResponse:
     revision_id: Optional[int] = None
     revision_code: Optional[str] = None
     output_dir: Optional[Path] = None
+    fcstd_path: Optional[Path] = None
+    step_path: Optional[Path] = None
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     elapsed_seconds: float = 0.0
@@ -218,6 +220,8 @@ class PieceController:
                 revision_id=revision_id,
                 revision_code=revision_code,
                 output_dir=output_dir,
+                fcstd_path=cad_result.fcstd_path,
+                step_path=cad_result.step_path,
                 warnings=all_warnings,
                 elapsed_seconds=cad_result.elapsed_seconds,
             )
