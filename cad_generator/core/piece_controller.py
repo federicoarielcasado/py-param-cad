@@ -46,6 +46,8 @@ class GenerationResponse:
     output_dir: Optional[Path] = None
     fcstd_path: Optional[Path] = None
     step_path: Optional[Path] = None
+    dxf_path: Optional[Path] = None
+    pdf_path: Optional[Path] = None
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     elapsed_seconds: float = 0.0
@@ -121,8 +123,9 @@ class PieceController:
         2. Validate parameters (abort on errors)
         3. Create revision record in DB (stores validation snapshot)
         4. Run CAD engine subprocess
-        5. Update revision with output file paths
-        6. Return GenerationResponse
+        5. Generate DXF/PDF drawing
+        6. Update revision with all output file paths
+        7. Return GenerationResponse
         """
         from cad_generator.config.catalog_loader import catalog
         from cad_generator.core.validation_engine import ValidationEngine
@@ -141,8 +144,9 @@ class PieceController:
                 return GenerationResponse(
                     success=False, errors=["Tipo de pieza no encontrado."]
                 )
-            piece_code  = piece_type.code
-            design_name = design.name
+            piece_code     = piece_type.code
+            design_name    = design.name
+            drawing_number = design.drawing_number or ""
             session.expunge(design)
             session.expunge(piece_type)
 
@@ -195,24 +199,70 @@ class PieceController:
         )
 
         # ------------------------------------------------------------------
-        # Step 5 — persist output paths (even on partial success)
+        # Step 5 — DXF/PDF drawing generation (only when CAD succeeded)
+        # ------------------------------------------------------------------
+        drawing_result = None
+        if cad_result.success:
+            from cad_generator.drawing.dxf_generator import (
+                DrawingContext,
+                DXFDrawingGenerator,
+            )
+            # Resolve human-readable material label for the title block
+            piece_spec    = catalog.get_piece(piece_code)
+            mat_value     = request.parameters.get("material", "—")
+            material_label = str(mat_value)
+            if piece_spec:
+                mat_spec = piece_spec.get_parameter("material")
+                if mat_spec:
+                    opt = next(
+                        (o for o in mat_spec.options if o.value == mat_value), None
+                    )
+                    if opt:
+                        material_label = opt.label
+
+            dxf_ctx = DrawingContext(
+                piece_code=piece_code,
+                piece_display_name=piece_spec.display_name if piece_spec else piece_code,
+                drawing_number=drawing_number,
+                revision_code=revision_code,
+                author=settings.default_author,
+                company_name=settings.company_name,
+                material_label=material_label,
+            )
+            drawing_result = DXFDrawingGenerator().generate(
+                piece_code=piece_code,
+                parameters=request.parameters,
+                output_dir=output_dir,
+                ctx=dxf_ctx,
+            )
+
+        # ------------------------------------------------------------------
+        # Step 6 — persist all output paths
         # ------------------------------------------------------------------
         with get_session() as session:
             rev_repo = RevisionRepository(session)
+            paths: dict = {}
             if cad_result.success:
-                rev_repo.update_output_paths(
-                    revision_id,
-                    {
-                        "fcstd": str(cad_result.fcstd_path) if cad_result.fcstd_path else None,
-                        "step":  str(cad_result.step_path)  if cad_result.step_path  else None,
-                    },
-                )
+                paths["fcstd"] = str(cad_result.fcstd_path) if cad_result.fcstd_path else None
+                paths["step"]  = str(cad_result.step_path)  if cad_result.step_path  else None
+            if drawing_result and drawing_result.success:
+                paths["dxf"] = str(drawing_result.dxf_path) if drawing_result.dxf_path else None
+                paths["pdf"] = str(drawing_result.pdf_path) if drawing_result.pdf_path else None
+            if paths:
+                rev_repo.update_output_paths(revision_id, paths)
             session.commit()
 
         # ------------------------------------------------------------------
-        # Step 6 — return result
+        # Step 7 — return result
         # ------------------------------------------------------------------
         all_warnings = warning_msgs + cad_result.warnings
+        if drawing_result:
+            all_warnings += drawing_result.warnings
+            if not drawing_result.success and drawing_result.error_message:
+                all_warnings.append(f"Plano DXF: {drawing_result.error_message}")
+
+        dxf_path = drawing_result.dxf_path if (drawing_result and drawing_result.success) else None
+        pdf_path = drawing_result.pdf_path if (drawing_result and drawing_result.success) else None
 
         if cad_result.success:
             return GenerationResponse(
@@ -222,6 +272,8 @@ class PieceController:
                 output_dir=output_dir,
                 fcstd_path=cad_result.fcstd_path,
                 step_path=cad_result.step_path,
+                dxf_path=dxf_path,
+                pdf_path=pdf_path,
                 warnings=all_warnings,
                 elapsed_seconds=cad_result.elapsed_seconds,
             )
