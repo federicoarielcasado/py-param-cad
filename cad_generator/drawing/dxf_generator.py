@@ -42,10 +42,20 @@ class DrawingContext:
     material_label: str
     date_str: str = ""
     standard: str = "IRAM 4505 / ISO 128"
+    eco_status: str = "draft"   # "draft" | "issued" | "obsolete"
 
     def __post_init__(self) -> None:
         if not self.date_str:
             self.date_str = date.today().strftime("%d/%m/%Y")
+
+    @property
+    def eco_status_label(self) -> str:
+        """Human-readable ECO status for the title block."""
+        return {
+            "draft":    "BORRADOR",
+            "issued":   "EMITIDO",
+            "obsolete": "OBSOLETO",
+        }.get(self.eco_status, self.eco_status.upper())
 
 
 @dataclass
@@ -239,11 +249,12 @@ def _draw_title_block(msp, sw: float, sh: float,
     for y_div in (y_r2, y_r3, y_r4):
         _hline(msp, x0, x1, y_div, "TITLEBLOCK")
 
-    # Row 1 column separators: 35 | 55 | 25 | remainder(70)
+    # Row 1 column separators: 35 | 55 | 25 | 45 | 25(ECO)
     c1 = x0 + 35.0
     c2 = c1 + 55.0
     c3 = c2 + 25.0
-    for xc in (c1, c2, c3):
+    c4 = c3 + 45.0   # FECHA | ESTADO separator
+    for xc in (c1, c2, c3, c4):
         _vline(msp, xc, y_r1, y_r2, "TITLEBLOCK")
 
     # Row 2 column separators: 35 | 60 | remainder(90)
@@ -266,11 +277,13 @@ def _draw_title_block(msp, sw: float, sh: float,
     lbl("N° PLANO:", c1,  y_r2)
     lbl("REV.:",     c2,  y_r2)
     lbl("FECHA:",    c3,  y_r2)
+    lbl("ESTADO:",   c4,  y_r2)
 
-    val(scale_str,              (x0 + c1) / 2, (y_r1 + y_r2) / 2)
-    val(ctx.drawing_number,     (c1 + c2) / 2, (y_r1 + y_r2) / 2)
-    val(ctx.revision_code,      (c2 + c3) / 2, (y_r1 + y_r2) / 2, _TH_TITLE)
-    val(ctx.date_str,           (c3 + x1) / 2, (y_r1 + y_r2) / 2, _TH_SMALL)
+    val(scale_str,                (x0 + c1) / 2, (y_r1 + y_r2) / 2)
+    val(ctx.drawing_number,       (c1 + c2) / 2, (y_r1 + y_r2) / 2)
+    val(ctx.revision_code,        (c2 + c3) / 2, (y_r1 + y_r2) / 2, _TH_TITLE)
+    val(ctx.date_str,             (c3 + c4) / 2, (y_r1 + y_r2) / 2, _TH_SMALL)
+    val(ctx.eco_status_label,     (c4 + x1) / 2, (y_r1 + y_r2) / 2, _TH_SMALL)
 
     # Row 2 labels & values
     lbl("MATERIAL:", x0,  y_r3)

@@ -232,6 +232,7 @@ class PieceController:
                 author=settings.default_author,
                 company_name=settings.company_name,
                 material_label=material_label,
+                eco_status="draft",   # new revisions always start as draft
             )
             drawing_result = DXFDrawingGenerator().generate(
                 piece_code=piece_code,

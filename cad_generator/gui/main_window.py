@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import zipfile
 from pathlib import Path
 from typing import Optional
 
@@ -30,6 +31,7 @@ from PyQt6.QtCore import QThread, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QKeySequence
 from PyQt6.QtWidgets import (
     QDialog,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -75,8 +77,9 @@ class _ResultPanel(QFrame):
         "border-radius: 4px; }"
     )
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, controller: "PieceController", parent=None) -> None:
         super().__init__(parent)
+        self._controller = controller
         self.setFrameShape(QFrame.Shape.StyledPanel)
 
         self._fcstd_path: Optional[Path] = None
@@ -86,6 +89,9 @@ class _ResultPanel(QFrame):
         self._bom_xlsx_path: Optional[Path] = None
         self._bom_pdf_path: Optional[Path] = None
         self._output_dir: Optional[Path] = None
+        self._design_id: Optional[int] = None
+        self._design_name: str = ""
+        self._revision_code: str = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
@@ -128,10 +134,13 @@ class _ResultPanel(QFrame):
         self._btn_bom_pdf  = QPushButton("📋  BOM PDF")
         self._btn_folder   = QPushButton("📂  Abrir carpeta")
         self._btn_freecad  = QPushButton("🔧  Abrir en FreeCAD")
+        self._btn_zip      = QPushButton("📦  Exportar ZIP")
+        self._btn_history  = QPushButton("🕐  Historial")
 
         for btn in (self._btn_fcstd, self._btn_step, self._btn_dxf,
                     self._btn_pdf, self._btn_bom_xlsx, self._btn_bom_pdf,
-                    self._btn_folder, self._btn_freecad):
+                    self._btn_folder, self._btn_freecad,
+                    self._btn_zip, self._btn_history):
             btn.setEnabled(False)
             bl.addWidget(btn)
         bl.addStretch()
@@ -174,6 +183,8 @@ class _ResultPanel(QFrame):
             if self._output_dir else None
         )
         self._btn_freecad.clicked.connect(self._open_in_freecad)
+        self._btn_zip.clicked.connect(self._export_zip)
+        self._btn_history.clicked.connect(self._open_history)
 
         self.hide()
 
@@ -181,7 +192,12 @@ class _ResultPanel(QFrame):
     # Public API
     # ------------------------------------------------------------------
 
-    def show_result(self, response: GenerationResponse) -> None:
+    def show_result(
+        self,
+        response: GenerationResponse,
+        design_id: Optional[int] = None,
+        design_name: str = "",
+    ) -> None:
         """Populate with a GenerationResponse and make the panel visible."""
         self._fcstd_path = response.fcstd_path
         self._step_path  = response.step_path
@@ -190,6 +206,9 @@ class _ResultPanel(QFrame):
         self._bom_xlsx_path = response.bom_xlsx_path
         self._bom_pdf_path  = response.bom_pdf_path
         self._output_dir    = response.output_dir
+        self._design_id     = design_id
+        self._design_name   = design_name
+        self._revision_code = response.revision_code or ""
 
         if response.success:
             self.setStyleSheet(self._STYLE_SUCCESS)
@@ -239,6 +258,8 @@ class _ResultPanel(QFrame):
             self._btn_freecad.setEnabled(
                 bool(self._fcstd_path and Path(self._fcstd_path).exists())
             )
+            self._btn_zip.setEnabled(bool(self._output_dir))
+            self._btn_history.setEnabled(bool(self._design_id is not None))
 
         # Messages
         msgs: list[str] = []
@@ -270,6 +291,53 @@ class _ResultPanel(QFrame):
         else:
             # Fallback: open with default file association
             os.startfile(str(self._fcstd_path))
+
+    def _export_zip(self) -> None:
+        """Package all generated output files into a single ZIP archive."""
+        files: list[Path] = []
+        for p in (self._fcstd_path, self._step_path, self._dxf_path,
+                  self._pdf_path, self._bom_xlsx_path, self._bom_pdf_path):
+            if p and Path(p).exists():
+                files.append(Path(p))
+
+        if not files:
+            QMessageBox.information(self, "Exportar ZIP", "No hay archivos para exportar.")
+            return
+
+        rev_suffix = f"_rev{self._revision_code}" if self._revision_code else ""
+        default_name = f"paquete{rev_suffix}.zip"
+        dest, _ = QFileDialog.getSaveFileName(
+            self,
+            "Guardar paquete ZIP",
+            str(self._output_dir / default_name) if self._output_dir else default_name,
+            "Archivo ZIP (*.zip)",
+        )
+        if not dest:
+            return
+
+        try:
+            with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for f in files:
+                    zf.write(f, f.name)
+            QMessageBox.information(
+                self, "Exportar ZIP",
+                f"Paquete exportado correctamente:\n{dest}",
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Error al exportar ZIP", str(exc))
+
+    def _open_history(self) -> None:
+        """Open RevisionPanel for the current design."""
+        if self._design_id is None:
+            return
+        from cad_generator.gui.revision_panel import RevisionPanel
+        dlg = RevisionPanel(
+            design_id=self._design_id,
+            design_name=self._design_name,
+            controller=self._controller,
+            parent=self,
+        )
+        dlg.exec()
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +417,7 @@ class _ParameterPage(QWidget):
         self._controller = controller
         self._current_piece_code: str | None = None
         self._current_design_id: int | None = None
+        self._current_design_name: str = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -412,7 +481,7 @@ class _ParameterPage(QWidget):
         layout.addWidget(action_bar)
 
         # Result panel (hidden until first generation)
-        self._result_panel = _ResultPanel()
+        self._result_panel = _ResultPanel(controller=self._controller)
         self._result_panel.setContentsMargins(8, 4, 8, 4)
         layout.addWidget(self._result_panel)
 
@@ -510,7 +579,8 @@ class _ParameterPage(QWidget):
             )
             return
 
-        self._current_design_id = design.id
+        self._current_design_id   = design.id
+        self._current_design_name = design.name
         drawing_info = (
             f"  [{design.drawing_number}]"
             if design.drawing_number
@@ -549,17 +619,25 @@ class _ParameterPage(QWidget):
 
         self._worker = _GenerateWorker(self._controller, request)
         self._worker.finished.connect(
-            lambda resp: self._on_generation_finished(resp, progress)
+            lambda resp: self._on_generation_finished(resp, progress,
+                                                      self._current_design_id,
+                                                      self._current_design_name)
         )
         self._worker.start()
 
     def _on_generation_finished(
-        self, response: GenerationResponse, progress: QProgressDialog
+        self,
+        response: GenerationResponse,
+        progress: QProgressDialog,
+        design_id: Optional[int] = None,
+        design_name: str = "",
     ) -> None:
         progress.close()
 
         # Show result in the persistent panel (no QMessageBox for generation)
-        self._result_panel.show_result(response)
+        self._result_panel.show_result(
+            response, design_id=design_id, design_name=design_name
+        )
 
         if response.success:
             self._design_status_lbl.setText(
@@ -643,6 +721,14 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
+        act_settings = QAction("⚙  &Configuración…", self)
+        act_settings.setShortcut(QKeySequence("Ctrl+,"))
+        act_settings.setStatusTip("Configurar empresa, autor y rutas del sistema.")
+        act_settings.triggered.connect(self._on_settings)
+        file_menu.addAction(act_settings)
+
+        file_menu.addSeparator()
+
         act_quit = QAction("&Salir", self)
         act_quit.setShortcut(QKeySequence("Ctrl+Q"))
         act_quit.triggered.connect(self.close)
@@ -686,6 +772,12 @@ class MainWindow(QMainWindow):
         self._status_bar.showMessage(
             "Seleccioná una pieza del catálogo para crear un nuevo diseño."
         )
+
+    def _on_settings(self) -> None:
+        """Open the application settings dialog."""
+        from cad_generator.gui.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(parent=self)
+        dlg.exec()
 
     def _on_about(self) -> None:
         QMessageBox.about(
