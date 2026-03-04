@@ -48,6 +48,8 @@ class GenerationResponse:
     step_path: Optional[Path] = None
     dxf_path: Optional[Path] = None
     pdf_path: Optional[Path] = None
+    bom_xlsx_path: Optional[Path] = None
+    bom_pdf_path: Optional[Path] = None
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     elapsed_seconds: float = 0.0
@@ -123,7 +125,8 @@ class PieceController:
         2. Validate parameters (abort on errors)
         3. Create revision record in DB (stores validation snapshot)
         4. Run CAD engine subprocess
-        5. Generate DXF/PDF drawing
+        5a. Generate DXF/PDF drawing
+        5b. Generate BOM (xlsx + pdf) and persist BOM items in DB
         6. Update revision with all output file paths
         7. Return GenerationResponse
         """
@@ -198,8 +201,11 @@ class PieceController:
             revision_code=revision_code,
         )
 
+        # Fetch piece spec once — shared by Steps 5a and 5b
+        piece_spec = catalog.get_piece(piece_code)
+
         # ------------------------------------------------------------------
-        # Step 5 — DXF/PDF drawing generation (only when CAD succeeded)
+        # Step 5a — DXF/PDF drawing generation (only when CAD succeeded)
         # ------------------------------------------------------------------
         drawing_result = None
         if cad_result.success:
@@ -207,9 +213,7 @@ class PieceController:
                 DrawingContext,
                 DXFDrawingGenerator,
             )
-            # Resolve human-readable material label for the title block
-            piece_spec    = catalog.get_piece(piece_code)
-            mat_value     = request.parameters.get("material", "—")
+            mat_value      = request.parameters.get("material", "—")
             material_label = str(mat_value)
             if piece_spec:
                 mat_spec = piece_spec.get_parameter("material")
@@ -237,7 +241,29 @@ class PieceController:
             )
 
         # ------------------------------------------------------------------
-        # Step 6 — persist all output paths
+        # Step 5b — BOM generation (only when CAD succeeded)
+        # ------------------------------------------------------------------
+        bom_result = None
+        if cad_result.success:
+            from cad_generator.core.bom_generator import BOMContext, BOMGenerator
+
+            bom_ctx = BOMContext(
+                piece_code=piece_code,
+                piece_display_name=piece_spec.display_name if piece_spec else piece_code,
+                drawing_number=drawing_number,
+                revision_code=revision_code,
+                author=settings.default_author,
+                company_name=settings.company_name,
+            )
+            bom_result = BOMGenerator().generate(
+                piece_code=piece_code,
+                parameters=request.parameters,
+                output_dir=output_dir,
+                ctx=bom_ctx,
+            )
+
+        # ------------------------------------------------------------------
+        # Step 6 — persist all output paths + BOM items
         # ------------------------------------------------------------------
         with get_session() as session:
             rev_repo = RevisionRepository(session)
@@ -248,6 +274,11 @@ class PieceController:
             if drawing_result and drawing_result.success:
                 paths["dxf"] = str(drawing_result.dxf_path) if drawing_result.dxf_path else None
                 paths["pdf"] = str(drawing_result.pdf_path) if drawing_result.pdf_path else None
+            if bom_result and bom_result.success:
+                paths["bom_xlsx"] = str(bom_result.xlsx_path) if bom_result.xlsx_path else None
+                paths["bom_pdf"]  = str(bom_result.pdf_path)  if bom_result.pdf_path  else None
+                if bom_result.items:
+                    BOMRepository(session).create_items(revision_id, bom_result.items)
             if paths:
                 rev_repo.update_output_paths(revision_id, paths)
             session.commit()
@@ -260,9 +291,15 @@ class PieceController:
             all_warnings += drawing_result.warnings
             if not drawing_result.success and drawing_result.error_message:
                 all_warnings.append(f"Plano DXF: {drawing_result.error_message}")
+        if bom_result:
+            all_warnings += bom_result.warnings
+            if not bom_result.success and bom_result.error_message:
+                all_warnings.append(f"BOM: {bom_result.error_message}")
 
-        dxf_path = drawing_result.dxf_path if (drawing_result and drawing_result.success) else None
-        pdf_path = drawing_result.pdf_path if (drawing_result and drawing_result.success) else None
+        dxf_path      = drawing_result.dxf_path if (drawing_result and drawing_result.success) else None
+        pdf_path      = drawing_result.pdf_path if (drawing_result and drawing_result.success) else None
+        bom_xlsx_path = bom_result.xlsx_path    if (bom_result and bom_result.success) else None
+        bom_pdf_path  = bom_result.pdf_path     if (bom_result and bom_result.success) else None
 
         if cad_result.success:
             return GenerationResponse(
@@ -274,6 +311,8 @@ class PieceController:
                 step_path=cad_result.step_path,
                 dxf_path=dxf_path,
                 pdf_path=pdf_path,
+                bom_xlsx_path=bom_xlsx_path,
+                bom_pdf_path=bom_pdf_path,
                 warnings=all_warnings,
                 elapsed_seconds=cad_result.elapsed_seconds,
             )

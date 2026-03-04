@@ -83,6 +83,8 @@ class _ResultPanel(QFrame):
         self._step_path: Optional[Path] = None
         self._dxf_path: Optional[Path] = None
         self._pdf_path: Optional[Path] = None
+        self._bom_xlsx_path: Optional[Path] = None
+        self._bom_pdf_path: Optional[Path] = None
         self._output_dir: Optional[Path] = None
 
         layout = QVBoxLayout(self)
@@ -118,15 +120,18 @@ class _ResultPanel(QFrame):
         bl.setContentsMargins(0, 0, 0, 0)
         bl.setSpacing(6)
 
-        self._btn_fcstd   = QPushButton("📄  FCStd")
-        self._btn_step    = QPushButton("📐  STEP")
-        self._btn_dxf     = QPushButton("📋  DXF")
-        self._btn_pdf     = QPushButton("📑  PDF")
-        self._btn_folder  = QPushButton("📂  Abrir carpeta")
-        self._btn_freecad = QPushButton("🔧  Abrir en FreeCAD")
+        self._btn_fcstd    = QPushButton("📄  FCStd")
+        self._btn_step     = QPushButton("📐  STEP")
+        self._btn_dxf      = QPushButton("📋  DXF")
+        self._btn_pdf      = QPushButton("📑  PDF")
+        self._btn_bom_xlsx = QPushButton("📊  BOM Excel")
+        self._btn_bom_pdf  = QPushButton("📋  BOM PDF")
+        self._btn_folder   = QPushButton("📂  Abrir carpeta")
+        self._btn_freecad  = QPushButton("🔧  Abrir en FreeCAD")
 
         for btn in (self._btn_fcstd, self._btn_step, self._btn_dxf,
-                    self._btn_pdf, self._btn_folder, self._btn_freecad):
+                    self._btn_pdf, self._btn_bom_xlsx, self._btn_bom_pdf,
+                    self._btn_folder, self._btn_freecad):
             btn.setEnabled(False)
             bl.addWidget(btn)
         bl.addStretch()
@@ -156,6 +161,14 @@ class _ResultPanel(QFrame):
             lambda: os.startfile(str(self._pdf_path))
             if self._pdf_path else None
         )
+        self._btn_bom_xlsx.clicked.connect(
+            lambda: os.startfile(str(self._bom_xlsx_path))
+            if self._bom_xlsx_path else None
+        )
+        self._btn_bom_pdf.clicked.connect(
+            lambda: os.startfile(str(self._bom_pdf_path))
+            if self._bom_pdf_path else None
+        )
         self._btn_folder.clicked.connect(
             lambda: os.startfile(str(self._output_dir))
             if self._output_dir else None
@@ -172,9 +185,11 @@ class _ResultPanel(QFrame):
         """Populate with a GenerationResponse and make the panel visible."""
         self._fcstd_path = response.fcstd_path
         self._step_path  = response.step_path
-        self._dxf_path   = response.dxf_path
-        self._pdf_path   = response.pdf_path
-        self._output_dir = response.output_dir
+        self._dxf_path      = response.dxf_path
+        self._pdf_path      = response.pdf_path
+        self._bom_xlsx_path = response.bom_xlsx_path
+        self._bom_pdf_path  = response.bom_pdf_path
+        self._output_dir    = response.output_dir
 
         if response.success:
             self.setStyleSheet(self._STYLE_SUCCESS)
@@ -211,6 +226,12 @@ class _ResultPanel(QFrame):
             )
             self._btn_pdf.setEnabled(
                 bool(self._pdf_path and Path(self._pdf_path).exists())
+            )
+            self._btn_bom_xlsx.setEnabled(
+                bool(self._bom_xlsx_path and Path(self._bom_xlsx_path).exists())
+            )
+            self._btn_bom_pdf.setEnabled(
+                bool(self._bom_pdf_path and Path(self._bom_pdf_path).exists())
             )
             self._btn_folder.setEnabled(
                 bool(self._output_dir and Path(self._output_dir).exists())
