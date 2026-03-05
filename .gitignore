@@ -13,7 +13,12 @@ build/
 venv/
 env/
 
-# Project runtime
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Archivos de runtime del proyecto
 *.db
 *.db-wal
 *.db-shm
@@ -23,7 +28,7 @@ outputs/
 exports/
 *.log
 
-# Claude Code local config (session-specific, not for sharing)
+# Configuración local de herramientas de desarrollo (no compartir)
 .claude/
 Claude.md
 
@@ -34,6 +39,9 @@ Claude.md
 
 # PyInstaller
 *.spec
+*.exe
+dist/
+build/
 
 # OS
 .DS_Store
@@ -44,5 +52,5 @@ desktop.ini
 *.FCBak
 *.FCStd1
 
-# Environment overrides
+# Variables de entorno y overrides locales
 .env
