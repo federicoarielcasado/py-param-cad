@@ -118,9 +118,14 @@ _LAYER_SPEC: dict[str, tuple[int, str, int]] = {
 # ---------------------------------------------------------------------------
 
 def _pick_sheet_and_scale(largo: float, ancho: float, espesor: float) -> tuple[str, int]:
-    """Return (sheet_name, scale_denominator) that fits top+front views."""
+    """Return (sheet_name, scale_denominator) that fits all three views.
+
+    Layout (first-angle projection):
+      [PLANTA (largo×ancho)]  gap  [PERFIL (ancho×espesor)]
+      [ALZADO (largo×espesor)]
+    """
     dim_space = 15.0   # space reserved for dimension lines per side (mm)
-    view_gap  = 15.0   # gap between top view and front view
+    view_gap  = 15.0   # gap between views
 
     for sheet_name, (sw, sh) in _SHEETS.items():
         usable_w = sw - _ML - _MO
@@ -128,8 +133,9 @@ def _pick_sheet_and_scale(largo: float, ancho: float, espesor: float) -> tuple[s
 
         for denom in _SCALES:
             s = 1.0 / denom
-            # Top view footprint on paper + dimension space
-            w_views = largo * s + 2 * dim_space
+            # Width: PLANTA/ALZADO (largo) + gap + PERFIL (ancho) + dim margins
+            w_views = largo * s + view_gap + ancho * s + 2 * dim_space
+            # Height: PLANTA (ancho) + gap + ALZADO (espesor) — PERFIL same height as ALZADO
             h_top   = ancho  * s + dim_space
             h_front = max(espesor * s, 5.0) + dim_space  # min 5 mm visible
             h_total = h_top + view_gap + h_front
@@ -424,6 +430,162 @@ def _draw_front_view(msp, params: dict, x0: float, y0: float, s: float) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Internal: side view (perfil lateral)
+# ---------------------------------------------------------------------------
+
+def _draw_side_view(msp, params: dict, x0: float, y0: float, s: float) -> None:
+    """
+    Draw perfil (right side view — looking along negative X axis).
+    x0, y0: bottom-left corner.
+    s: scale factor.
+
+    Shows ancho (horizontal) × espesor (vertical).
+    Projects hole Y-coordinates as vertical hidden lines.
+    """
+    ancho   = params["ancho"]
+    espesor = params["espesor"]
+    patron  = params["patron_perforaciones"]
+    margen  = params["margen_perforacion"]
+    largo   = params["largo"]
+
+    va = ancho * s
+    ve = max(espesor * s, 3.0)
+
+    # Outer rectangle
+    _rect(msp, x0, y0, x0 + va, y0 + ve, "VISIBLE")
+
+    # Center line horizontal (mid-espesor)
+    cy = y0 + ve / 2
+    ext = 5.0
+    _hline(msp, x0 - ext, x0 + va + ext, cy, "CENTER")
+
+    # Project holes onto side face: unique Y positions become X on this view
+    holes = _hole_positions(patron, largo, ancho, margen)
+    projected_ys = sorted({hy for _, hy in holes})
+    for hy in projected_ys:
+        py = x0 + hy * s   # Y coord of hole → horizontal position on side view
+        _vline(msp, py, y0, y0 + ve, "HIDDEN")
+
+    # Dimension: ancho (horizontal, above side view)
+    # — drawn as a label text to avoid cluttering (full dimension handled separately)
+    _txt(msp, f"{ancho:.0f}", x0 + va / 2, y0 + ve + 8.0, _TH_SMALL, "DIMENSION")
+
+
+# ---------------------------------------------------------------------------
+# Internal: hole coordinate table
+# ---------------------------------------------------------------------------
+
+_HT_COL_W = (10.0, 22.0, 22.0)   # N°, X(mm), Y(mm) column widths (mm)
+_HT_ROW_H = 5.5                    # row height (mm)
+
+
+def _draw_hole_table(
+    msp,
+    holes: list[tuple[float, float]],
+    diameter: float,
+    x0: float,
+    y_top: float,
+) -> float:
+    """
+    Draw a compact hole coordinate table starting at (x0, y_top).
+    Returns the Y coordinate of the bottom of the table.
+    """
+    if not holes:
+        return y_top
+
+    total_w = sum(_HT_COL_W)
+    n_rows  = len(holes)
+    lbl_row = _HT_ROW_H
+    hdr_row = _HT_ROW_H
+    total_h = lbl_row + hdr_row + n_rows * _HT_ROW_H
+
+    # Title label above the table
+    _txt_left(
+        msp,
+        f"PERFORACIONES  \u00d8{diameter:.0f}",
+        x0, y_top - 1.5, _TH_SMALL, "TEXT_TB",
+    )
+
+    # Table outer border
+    tbl_y1 = y_top - lbl_row
+    tbl_y0 = tbl_y1 - hdr_row - n_rows * _HT_ROW_H
+    _rect(msp, x0, tbl_y0, x0 + total_w, tbl_y1, "TITLEBLOCK")
+
+    # Header row separator
+    _hline(msp, x0, x0 + total_w, tbl_y1 - hdr_row, "TITLEBLOCK")
+
+    # Vertical column separators (full table height)
+    cx1 = x0 + _HT_COL_W[0]
+    cx2 = cx1 + _HT_COL_W[1]
+    _vline(msp, cx1, tbl_y0, tbl_y1, "TITLEBLOCK")
+    _vline(msp, cx2, tbl_y0, tbl_y1, "TITLEBLOCK")
+
+    # Header text
+    hdr_cy = tbl_y1 - hdr_row / 2
+    _txt(msp, "N\u00b0",     x0 + _HT_COL_W[0] / 2, hdr_cy, _TH_SMALL, "TEXT_TB")
+    _txt(msp, "X (mm)", cx1 + _HT_COL_W[1] / 2, hdr_cy, _TH_SMALL - 0.3, "TEXT_TB")
+    _txt(msp, "Y (mm)", cx2 + _HT_COL_W[2] / 2, hdr_cy, _TH_SMALL - 0.3, "TEXT_TB")
+
+    # Data rows
+    for i, (hx, hy) in enumerate(holes, start=1):
+        row_y1 = tbl_y1 - hdr_row - (i - 1) * _HT_ROW_H
+        row_y0 = row_y1 - _HT_ROW_H
+        cy_row = (row_y0 + row_y1) / 2
+        if i < n_rows:  # horizontal separator between rows (not after last)
+            _hline(msp, x0, x0 + total_w, row_y0, "TITLEBLOCK")
+        _txt(msp, str(i),       x0 + _HT_COL_W[0] / 2, cy_row, _TH_SMALL - 0.3, "TEXT_TB")
+        _txt(msp, f"{hx:.1f}", cx1 + _HT_COL_W[1] / 2, cy_row, _TH_SMALL - 0.3, "TEXT_TB")
+        _txt(msp, f"{hy:.1f}", cx2 + _HT_COL_W[2] / 2, cy_row, _TH_SMALL - 0.3, "TEXT_TB")
+
+    return tbl_y0
+
+
+# ---------------------------------------------------------------------------
+# Internal: technical notes block
+# ---------------------------------------------------------------------------
+
+_NOTES_MAX_W = 130.0   # cap notes block width so it doesn't span huge A1 sheets
+
+
+def _draw_tech_notes(msp, sw: float, material_label: str) -> None:
+    """
+    Draw a technical notes block to the left of the title block (same strip).
+    Width fills the space between binding margin and title block (max _NOTES_MAX_W).
+    """
+    avail_w = sw - _MO - _TB_W - _ML - 6.0   # 3 mm gap on each side
+    if avail_w < 30.0:                          # not enough space — skip
+        return
+    box_w = min(avail_w, _NOTES_MAX_W)
+    x0 = _ML + 3.0
+    x1 = x0 + box_w
+    y0 = _MO
+    y1 = _MO + _TB_H
+
+    _rect(msp, x0, y0, x1, y1, "TITLEBLOCK")
+
+    # Title row (top 7 mm)
+    title_h = 7.0
+    _hline(msp, x0, x1, y1 - title_h, "TITLEBLOCK")
+    _txt(msp, "NOTAS GENERALES", (x0 + x1) / 2, y1 - title_h / 2, _TH_SMALL, "TEXT_TB")
+
+    notes = [
+        "1. Tolerancias generales seg\u00fan IRAM 5001 / ISO 2768 m.",
+        "2. Aristas vivas: quebrar 0.5\u00d745\u00b0 o R0.5.",
+        "3. Superficies sin especificar: Ra 6.3 \u03bcm.",
+        f"4. Material: {material_label}.",
+        "5. Rosca m\u00e9trica seg\u00fan IRAM 5009 (ISO 724).",
+    ]
+
+    body_h   = (y1 - title_h) - y0
+    line_h   = body_h / max(len(notes), 1)
+    text_h   = min(_TH_SMALL - 0.2, 2.2)
+    for i, note in enumerate(notes):
+        ny = (y1 - title_h) - (i + 0.5) * line_h
+        # Truncate if too wide for the box
+        _txt_left(msp, note, x0 + 1.5, ny, text_h, "TEXT_TB")
+
+
+# ---------------------------------------------------------------------------
 # Internal: overall dimensions
 # ---------------------------------------------------------------------------
 
@@ -575,8 +737,7 @@ class DXFDrawingGenerator:
         # 2 — Title block
         _draw_title_block(msp, sw, sh, ctx, scale_str)
 
-        # 3 — Compute view positions
-        #  Available area: above title block strip, inside frame
+        # 3 — Compute view positions (first-angle projection)
         view_area_x0 = _ML + _DIM_OFF + 5.0
         view_area_y0 = _MO + _TB_H + _MO
         view_gap = 15.0
@@ -585,27 +746,35 @@ class DXFDrawingGenerator:
         va = ancho   * s
         ve = max(espesor * s, 3.0)
 
-        # Front view (alzado) — bottom
+        # ALZADO (front view) — bottom-left
         fv_x0 = view_area_x0
         fv_y0 = view_area_y0
+        fv_x1 = fv_x0 + vl
         fv_y1 = fv_y0 + ve
 
-        # Top view (planta) — above front view
+        # PLANTA (top view) — directly above ALZADO
         tv_x0 = fv_x0
         tv_y0 = fv_y1 + view_gap
         tv_x1 = tv_x0 + vl
         tv_y1 = tv_y0 + va
 
+        # PERFIL (right side view) — to the right of ALZADO, same bottom Y
+        pv_x0 = fv_x1 + view_gap
+        pv_y0 = fv_y0
+        pv_x1 = pv_x0 + va
+        pv_y1 = pv_y0 + ve
+
         # 4 — Draw views
         _draw_top_view(msp, params, tv_x0, tv_y0, s)
         _draw_front_view(msp, params, fv_x0, fv_y0, s)
+        _draw_side_view(msp, params, pv_x0, pv_y0, s)
 
         # View labels
-        cx_views = fv_x0 + vl / 2
-        _txt(msp, "PLANTA", cx_views, tv_y1 + 6.0, _TH_SMALL, "TEXT_TB")
-        _txt(msp, "ALZADO", cx_views, fv_y0 - 5.0, _TH_SMALL, "TEXT_TB")
+        _txt(msp, "PLANTA", (tv_x0 + tv_x1) / 2, tv_y1 + 6.0, _TH_SMALL, "TEXT_TB")
+        _txt(msp, "ALZADO", (fv_x0 + fv_x1) / 2, fv_y0 - 5.0, _TH_SMALL, "TEXT_TB")
+        _txt(msp, "PERFIL", (pv_x0 + pv_x1) / 2, pv_y0 - 5.0, _TH_SMALL, "TEXT_TB")
 
-        # 5 — Dimensions
+        # 5 — Overall dimensions
         _add_dimensions(
             msp,
             tv_x0, tv_y0, tv_x1, tv_y1,
@@ -614,12 +783,24 @@ class DXFDrawingGenerator:
             denom,
         )
 
-        # 6 — Save DXF
+        # 6 — Hole coordinate table (to the right of PERFIL, if space allows)
+        holes = _hole_positions(
+            params["patron_perforaciones"], largo, ancho, params["margen_perforacion"]
+        )
+        ht_x0 = pv_x1 + 8.0
+        if holes and ht_x0 + sum(_HT_COL_W) + 5.0 <= sw - _MO:
+            _draw_hole_table(msp, holes, params["diametro_perforacion"],
+                             ht_x0, tv_y1)
+
+        # 7 — Technical notes block (left of title block)
+        _draw_tech_notes(msp, sw, ctx.material_label)
+
+        # 8 — Save DXF
         stem = f"base_plate_{ctx.revision_code}"
         dxf_path = output_dir / f"{stem}.dxf"
         doc.saveas(str(dxf_path))
 
-        # 7 — Export PDF
+        # 9 — Export PDF
         warnings: list[str] = []
         pdf_path = output_dir / f"{stem}.pdf"
         ok, msg = _export_pdf(doc, pdf_path, sheet_name)

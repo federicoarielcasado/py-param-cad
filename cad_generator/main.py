@@ -14,11 +14,15 @@ import sys
 from PyQt6.QtWidgets import QApplication
 
 from cad_generator.config.settings import settings
+from cad_generator.core.logging_setup import setup_logging
 from cad_generator.data.database import init_db
 from cad_generator.gui.main_window import MainWindow
 
 
 def main() -> int:
+    # Set up logging (rotating file in outputs dir)
+    setup_logging(settings.outputs_dir)
+
     # Initialize database before creating the GUI
     init_db()
 

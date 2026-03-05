@@ -118,6 +118,15 @@ class PieceController:
                 session.expunge(d)
             return designs
 
+    def get_revisions_for_design(self, design_id: int) -> list[Revision]:
+        """Return all revisions for a design, ordered oldest→newest."""
+        with get_session() as session:
+            repo = RevisionRepository(session)
+            revisions = repo.get_by_design(design_id)
+            for rev in revisions:
+                session.expunge(rev)
+            return revisions
+
     def generate(self, request: GenerationRequest) -> GenerationResponse:
         """
         Full generation pipeline:
