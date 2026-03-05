@@ -5,8 +5,8 @@ Generates DXF (R2010 / AutoCAD 2010) and PDF drawings for each piece:
   - Top view  (planta)  — footprint, hole pattern, slots, center lines
   - Front view (alzado) — profile with hidden hole projections
   - IRAM 4505 / ISO 128 compliant title block
-  - Automatic sheet size: A4 → A3 → A2 (landscape)
-  - Automatic scale:      1:1 → 1:2 → 1:5 → 1:10 → 1:20 → 1:50
+  - Automatic sheet size: A4 → A3 → A2 → A1 (landscape, smallest that fits)
+  - Automatic scale:      1:1 → 1:2 → 1:5 → 1:10 → 1:20 → 1:50 (most legible first)
   - Overall dimensions (largo, ancho, espesor) with real-unit text
   - PDF export via ezdxf drawing add-on (requires matplotlib)
 
@@ -123,23 +123,26 @@ def _pick_sheet_and_scale(largo: float, ancho: float, espesor: float) -> tuple[s
     Layout (first-angle projection):
       [PLANTA (largo×ancho)]  gap  [PERFIL (ancho×espesor)]
       [ALZADO (largo×espesor)]
+
+    Strategy: iterate scales from largest (1:1) to smallest (1:50) first,
+    then find the *smallest* sheet that fits at that scale.  This maximises
+    drawing legibility — a 300×200 plate gets A2 1:1, not A4 1:5.
     """
     dim_space = 15.0   # space reserved for dimension lines per side (mm)
     view_gap  = 15.0   # gap between views
 
-    for sheet_name, (sw, sh) in _SHEETS.items():
-        usable_w = sw - _ML - _MO
-        usable_h = sh - _MO * 2 - _TB_H - _MO  # above title block strip
+    for denom in _SCALES:
+        s = 1.0 / denom
+        # Width: PLANTA/ALZADO (largo) + gap + PERFIL (ancho) + dim margins
+        w_views = largo * s + view_gap + ancho * s + 2 * dim_space
+        # Height: PLANTA (ancho) + gap + ALZADO (espesor) — PERFIL same height as ALZADO
+        h_top   = ancho  * s + dim_space
+        h_front = max(espesor * s, 5.0) + dim_space  # min 5 mm visible
+        h_total = h_top + view_gap + h_front
 
-        for denom in _SCALES:
-            s = 1.0 / denom
-            # Width: PLANTA/ALZADO (largo) + gap + PERFIL (ancho) + dim margins
-            w_views = largo * s + view_gap + ancho * s + 2 * dim_space
-            # Height: PLANTA (ancho) + gap + ALZADO (espesor) — PERFIL same height as ALZADO
-            h_top   = ancho  * s + dim_space
-            h_front = max(espesor * s, 5.0) + dim_space  # min 5 mm visible
-            h_total = h_top + view_gap + h_front
-
+        for sheet_name, (sw, sh) in _SHEETS.items():
+            usable_w = sw - _ML - _MO
+            usable_h = sh - _MO * 2 - _TB_H - _MO  # above title block strip
             if w_views <= usable_w and h_total <= usable_h:
                 return sheet_name, denom
 
